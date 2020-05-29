@@ -51,4 +51,5 @@ print(model.tree_str())
 
 predictions = model.predict(test_set)
 print([prediction for prediction in predictions])
+# TODO: fix this
 print(sum(1 for index, prediction in enumerate(predictions) if test_set[index][-1] == prediction) / len(test_set))
