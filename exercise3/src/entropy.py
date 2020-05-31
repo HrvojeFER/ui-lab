@@ -1,6 +1,7 @@
 import math
+from typing import *
 
-from dataset import *
+from dataset import Dataset
 
 
 def relative_frequency(dataset: Dataset, column: Dataset.Column, value: Any):
@@ -63,9 +64,9 @@ def information_gain(dataset: Dataset, feature_column: Dataset.Column) -> float:
 
 
     :param dataset: dataset to perform the calculation on
-    :param feature_column: feature column for which the information gain will be calculated
+    :param feature_column: feature_column column for which the information gain will be calculated
 
-    :return: information gain for the specified feature column
+    :return: information gain for the specified feature_column column
     """
 
     result_column = dataset.result_column

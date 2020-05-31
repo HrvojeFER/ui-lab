@@ -4,7 +4,7 @@ import os
 from enum import *
 from typing import *
 
-import extensions
+from extensions import safe_literal_eval
 
 
 class Dataset(FrozenSet["Dataset.Row"]):
@@ -33,7 +33,12 @@ class Dataset(FrozenSet["Dataset.Row"]):
                     name: str,
                     supported: Iterable[Hashable],
                     value_frequency: ValueFrequency = ValueFrequency.Auto):
-            if value_frequency != Dataset.Column.ValueFrequency.Discrete:
+
+            supported = set(supported)
+            if len(supported) == 0 or (len(supported) == 1 and next(iter(supported)) is None):
+                supported = {None}
+
+            elif value_frequency != Dataset.Column.ValueFrequency.Discrete:
                 types = set()
                 for value in supported:
                     value_type = type(value)
@@ -82,13 +87,13 @@ class Dataset(FrozenSet["Dataset.Row"]):
         def __hash__(self) -> int:
             return hash(self._name)
 
-        _string_value_separator: str = ':'
+        string_value_separator: str = ':'
 
         def __str__(self) -> str:
             return f'{self._name}'
 
         def __repr__(self) -> str:
-            return f'{self._name}{self._string_value_separator} {set(self)}'
+            return f'{self._name}{self.string_value_separator} {set(self)}'
 
         @classmethod
         def parse(cls, string_value: str, value_type: ValueFrequency = ValueFrequency.Auto) -> Dataset.Column:
@@ -107,9 +112,9 @@ class Dataset(FrozenSet["Dataset.Row"]):
             :return: parsed feature_column with the inferred possible value types.
             """
 
-            split = string_value.strip().split(cls._string_value_separator)
+            split = string_value.strip().split(cls.string_value_separator)
             name = split[0].strip()
-            feature_values = extensions.safe_literal_eval(split[1].strip())
+            feature_values = safe_literal_eval(split[1].strip())
             return Dataset.Column(name, feature_values, value_type)
 
     class Row(Mapping["Dataset.Column", Hashable], Hashable):
@@ -146,13 +151,13 @@ class Dataset(FrozenSet["Dataset.Row"]):
             def __hash__(self) -> int:
                 return hash(self._column)
 
-            _string_value_separator = '->'
+            string_value_separator = '->'
 
             def __str__(self) -> str:
                 return f"{self._value}"
 
             def __repr__(self) -> str:
-                return f"{repr(self._column)} {self._string_value_separator} {repr(self._value)}"
+                return f"{repr(self._column)} {self.string_value_separator} {repr(self._value)}"
 
             @classmethod
             def parse(cls, string_value: str) -> Dataset.Row.ColumnValue[Dataset.Column]:
@@ -169,15 +174,15 @@ class Dataset(FrozenSet["Dataset.Row"]):
                 doesn't match one of the supported types.
                 """
 
-                split = string_value.strip().split(cls._string_value_separator)
+                split = string_value.strip().split(cls.string_value_separator)
                 column = Dataset.Column.parse(split[0].strip())
-                value = extensions.safe_literal_eval(split[1].strip())
+                value = safe_literal_eval(split[1].strip())
                 return Dataset.Row.ColumnValue(column, value)
 
         def __init__(self,
-                     values: Union[Iterable[Dataset.Row.ColumnValue], Mapping[Dataset.Column, Hashable]]):
-            if isinstance(values, Mapping):
-                self._columns_to_values: Dict[Dataset.Column, Hashable] = dict(values)
+                     values: Union[Sequence[Dataset.Row.ColumnValue], Dict[Dataset.Column, Hashable]]):
+            if isinstance(values, Dict):
+                self._columns_to_values: Dict[Dataset.Column, Hashable] = values
             else:
                 self._columns_to_values: Dict[Dataset.Column, Hashable] = \
                     dict((column_value.column, column_value.value) for column_value in values)
@@ -209,7 +214,7 @@ class Dataset(FrozenSet["Dataset.Row"]):
 
         def select(self, *columns: Dataset.Column) -> Dataset.Row:
             to_select = set(columns).intersection(self._columns_to_values.keys())
-            return Dataset.Row(Dataset.Row.ColumnValue(column, self[column]) for column in to_select)
+            return Dataset.Row([Dataset.Row.ColumnValue(column, self[column]) for column in to_select])
 
         def __eq__(self, other: Dataset.Row) -> bool:
             return self._columns_to_values == other._columns_to_values
@@ -217,13 +222,13 @@ class Dataset(FrozenSet["Dataset.Row"]):
         def __hash__(self) -> int:
             return sum(hash(value) for value in self._columns_to_values.values())
 
-        _string_value_separator = ','
+        column_separator = ','
 
         def __str__(self) -> str:
-            return self._string_value_separator.join(str(value) for value in self._columns_to_values.values())
+            return self.column_separator.join(str(value) for value in self._columns_to_values.values())
 
         def __repr__(self) -> str:
-            return f'{self._string_value_separator} '.join(
+            return f'{self.column_separator} '.join(
                 f'{str(column)}: {repr(value)}' for column, value in self._columns_to_values.items())
 
         class InvalidRowValuesError(ValueError):
@@ -251,12 +256,12 @@ class Dataset(FrozenSet["Dataset.Row"]):
             :raises InvalidRowValuesError: when the values aren't one of the supported feature_column values or
             when they don't match the supported feature_column types.
             """
-            values = string_value.strip().split(cls._string_value_separator)
+            values = string_value.strip().split(cls.column_separator)
             if len(columns) != len(values):
                 raise Dataset.Row.InvalidRowValuesError(columns, values)
 
             try:
-                return Dataset.Row(dict((column, extensions.safe_literal_eval(value.strip()))
+                return Dataset.Row(dict((column, safe_literal_eval(value.strip()))
                                         for column, value in zip(columns, values)))
             except Dataset.Column.UnsupportedValueError:
                 raise Dataset.Row.InvalidRowValuesError(columns, values)
@@ -277,7 +282,7 @@ class Dataset(FrozenSet["Dataset.Row"]):
         return super(Dataset, cls).__new__(cls, rows)
 
     # noinspection PyUnusedLocal
-    def __init__(self, name: str, columns: Iterable[Dataset.Column], rows: Iterable[Dataset.Row]):
+    def __init__(self, name: str, columns: Sequence[Dataset.Column], rows: Iterable[Dataset.Row]):
         super().__init__()
         self._name: str = name
 
@@ -342,7 +347,7 @@ class Dataset(FrozenSet["Dataset.Row"]):
         >>> column_a = Dataset.Column.parse("A: {'a'}")
         >>> column_b = Dataset.Column.parse("B: {'b'}")
         >>> row = Dataset.Row({column_a: 'a', column_b: 'b'})
-        >>> dataset = Dataset("My Dataset", {column_a, column_b}, {row})
+        >>> dataset = Dataset("My Dataset", [column_a, column_b], {row})
         >>> repr(dataset.select(column_a))
         'A\\na'
 
@@ -351,9 +356,9 @@ class Dataset(FrozenSet["Dataset.Row"]):
         """
         if len(columns) > 0:
             to_select = set(columns).intersection(self._columns.keys())
-            return Dataset(self._name, to_select, (row.select(*to_select) for row in self))
+            return Dataset(self._name, list(to_select), (row.select(*to_select) for row in self))
         else:
-            return Dataset(self._name, self._columns.keys(), self)
+            return Dataset(self._name, list(self._columns.keys()), self)
 
     def where(self, column_value: Dataset.Row.ColumnValue) -> Dataset:
         """
@@ -370,11 +375,11 @@ class Dataset(FrozenSet["Dataset.Row"]):
         """
         return Dataset(
             self._name,
-            self._columns.keys(),
+            list(self._columns.keys()),
             (row for row in self if row[column_value.column] == column_value.value))
 
-    _column_separator = ','
-    _row_separator = '\n'
+    column_separator = ','
+    row_separator = '\n'
 
     def is_empty(self) -> bool:
         return len(self) == 0
@@ -383,14 +388,14 @@ class Dataset(FrozenSet["Dataset.Row"]):
         return len(self._columns.keys()) == 0
 
     def __str__(self) -> str:
-        return f"{self._column_separator.join(str(column) for column in self._columns.keys())}" \
-               f"{self._row_separator}" \
-               f"{self._row_separator.join(str(row) for row in self)}"
+        return f"{self.column_separator.join(str(column) for column in self._columns.keys())}" \
+               f"{self.row_separator}" \
+               f"{self.row_separator.join(str(row) for row in self)}"
 
     def __repr__(self) -> str:
-        return f"{self._column_separator.join(str(column) for column in self._columns.keys())}" \
-               f"{self._row_separator}" \
-               f"{self._row_separator.join(str(row) for row in self)}"
+        return f"{self.column_separator.join(str(column) for column in self._columns.keys())}" \
+               f"{self.row_separator}" \
+               f"{self.row_separator.join(str(row) for row in self)}"
 
     @classmethod
     def parse(cls,
@@ -413,8 +418,8 @@ class Dataset(FrozenSet["Dataset.Row"]):
 
         string_value = string_value.strip()
         lines_for_columns: List[List[str]] = []
-        for line in string_value.split(cls._row_separator):
-            lines_for_columns.append([value.strip() for value in line.strip().split(cls._column_separator)])
+        for line in string_value.split(cls.row_separator):
+            lines_for_columns.append([value.strip() for value in line.strip().split(cls.column_separator)])
 
         columns = []
         if len(column_value_frequencies) == 0:
@@ -424,10 +429,10 @@ class Dataset(FrozenSet["Dataset.Row"]):
         for index, column_name in enumerate(lines_for_columns[0]):
             columns.append(Dataset.Column(
                 column_name,
-                set(extensions.safe_literal_eval(row[index]) for row in lines_for_columns[1:]),
+                set(safe_literal_eval(row[index]) for row in lines_for_columns[1:]),
                 column_value_frequencies[index]))
 
-        lines_for_rows = [line.strip() for line in string_value.split(cls._row_separator)[1:]]
+        lines_for_rows = [line.strip() for line in string_value.split(cls.row_separator)[1:]]
         rows = set()
         for line in lines_for_rows:
             rows.add(Dataset.Row.parse(columns, line))
