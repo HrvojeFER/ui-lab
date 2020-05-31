@@ -1,5 +1,7 @@
-from typing import *
 import math
+
+from typing import *
+
 
 # TODO: write tests!!!
 
