@@ -17,10 +17,11 @@ def arg_max(iterable: Iterable[ArgType], *iterables: Iterable[ArgType], key: Cal
     >>> arg_max([1], [2, 3], [], key=lambda x: x * 2)
     3
 
-    :param key: function that takes the ArgType and returns a value that supports the '>' operator.
+    :param key: function that takes the ArgType and returns a value_or_type that supports the '>' operator.
     :param iterable: arguments to test the key with
     :param iterables: iterables of arguments to test the key with
-    :return: the argument that has the maximum value when applying the key to it or None if the iterables are empty
+    :return: the argument that has the maximum value_or_type when applying the key to it or None if
+    the iterables are empty
     """
     iterables = (iterable, *iterables)
 

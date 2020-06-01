@@ -44,7 +44,7 @@ class DecisionForest(FrozenSet):
                     self._value: Any = connections_or_value
 
                 for connection in self.connections:
-                    if not feature_column.supports_value_or_type(connection.feature_value):
+                    if not feature_column.supports(connection.feature_value):
                         raise Dataset.Column.UnsupportedValueError(feature_column, connection.feature_value)
     
             @property
@@ -55,7 +55,12 @@ class DecisionForest(FrozenSet):
             def connections(self) -> FrozenSet[DecisionForest.Tree.Connection]:
                 return frozenset(DecisionForest.Tree.Connection(feature_value, node)
                                  for feature_value, node in self._connections.items())
-    
+
+            @property
+            def connection_tuple(self) -> Tuple[DecisionForest.Tree.Connection, ...]:
+                return tuple(DecisionForest.Tree.Connection(feature_value, node)
+                             for feature_value, node in self._connections.items())
+
             def is_leaf(self) -> bool:
                 return len(self) == 0
 
@@ -81,14 +86,13 @@ class DecisionForest(FrozenSet):
             def iterate(self, row: Dataset.Row) -> DecisionForest.Tree.Path:
                 """
                 >>> node = DecisionForest.Tree.Node.parse("B =>(c --> D =>(True --> S -> 0); d --> A -> 1)")
-                >>> str(node.iterate(Dataset.Row.parse([Dataset.Column.parse("B: {'d'}")], "d")))
+                >>> str(node.iterate(Dataset.Row.parse("B: {'c', 'd'} -> d")))
                 'B ==> A'
 
-                >>> str(node.iterate(Dataset.Row.parse([Dataset.Column.parse("B: {'c'}")], "c")))
+                >>> str(node.iterate(Dataset.Row.parse("B: {'c', 'd'} -> c")))
                 'B ==> D'
 
-                >>> str(node.iterate(Dataset.Row.parse(
-                ...     [Dataset.Column.parse("B: {'c'}"), Dataset.Column.parse("D: {True}")], "c, True")))
+                >>> str(node.iterate(Dataset.Row.parse("B: {'c', 'd'} -> c; D -> True")))
                 'B ==> D ==> S'
 
 
@@ -96,7 +100,7 @@ class DecisionForest(FrozenSet):
 
                 :return: path the nodes took
 
-                :raises ConnectionNotFound when the connection for the feature value cannot be found
+                :raises ConnectionNotFound when the connection for the feature value_or_type cannot be found
                 """
 
                 nodes = [self]
@@ -136,7 +140,7 @@ class DecisionForest(FrozenSet):
             class LeafMissingValueError(SyntaxError):
                 def __init__(self, node_string: str):
                     super().__init__(f"Node string ({node_string}) without connections (meaning its a leaf) is "
-                                     f"missing a value.")
+                                     f"missing a value_or_type.")
 
             @classmethod
             def parse(cls, string_value: str) -> DecisionForest.Tree.Node:
@@ -160,7 +164,7 @@ class DecisionForest(FrozenSet):
                 split = string_value.strip().split(cls.connections_begin, 1)
 
                 feature_string = split[0].strip()
-                # If its a feature column value its a leaf.
+                # If its a feature column value_or_type its a leaf.
                 if Dataset.Row.ColumnValue.string_value_separator in feature_string:
                     feature_value = Dataset.Row.ColumnValue.parse(feature_string)
                     return DecisionForest.Tree.Node(feature_value.column, feature_value.value)
@@ -176,7 +180,7 @@ class DecisionForest(FrozenSet):
                 if Dataset.Column.string_value_separator in feature_string:
                     feature = Dataset.Column.parse(feature_string)
                 else:
-                    feature = Dataset.Column(feature_string, (connection.feature_value for connection in connections))
+                    feature = Dataset.Column(feature_string, [connection.feature_value for connection in connections])
     
                 return DecisionForest.Tree.Node(feature, connections)
     
@@ -331,12 +335,13 @@ class DecisionForest(FrozenSet):
         def parse(cls, string_value: str) -> DecisionForest.Tree:
             return DecisionForest.Tree(DecisionForest.Tree.Node.parse(string_value))
 
-        class InadequateDatasetError(ValueError):
-            def __init__(self, dataset: Dataset):
-                super().__init__(f"Dataset ({dataset.name}) with value frequency ({dataset.column_value_frequency}) "
-                                 f"is inadequate for tree generation.")
-
         class Generator:
+            class InadequateDatasetError(ValueError):
+                def __init__(self, dataset: Dataset):
+                    super().__init__(f"Dataset ({dataset.name}) with "
+                                     f"value_or_type frequency ({dataset.column_value_frequency}) is "
+                                     f"inadequate for tree generation.")
+
             @classmethod
             def from_dataset(cls,
                              dataset: Dataset,
@@ -355,9 +360,9 @@ class DecisionForest(FrozenSet):
                 # I think this might work with other frequency types as well.
                 if dataset.column_value_frequency == Dataset.Column.ValueFrequency.Discrete:
                     return DecisionForest.Tree(cls._from_discrete_dataset(
-                        dataset, dataset, set(dataset.feature_columns), max_depth=max_depth))
+                        dataset, dataset, set(dataset.feature_column_set), max_depth=max_depth))
 
-                raise DecisionForest.Tree.InadequateDatasetError(dataset)
+                raise DecisionForest.Tree.Generator.InadequateDatasetError(dataset)
 
             @classmethod
             def _most_frequent_result_column_value(cls, dataset: Dataset) -> Any:
@@ -366,8 +371,10 @@ class DecisionForest(FrozenSet):
                            key=lambda item: item[1])[0]
 
             @classmethod
-            def _most_discriminatory_feature_column(cls, dataset: Dataset) -> Dataset.Column:
-                return arg_max(sorted(dataset.feature_columns, key=lambda feature_column: feature_column.name),
+            def _most_discriminatory_feature_column(cls,
+                                                    dataset: Dataset,
+                                                    feature_columns: Iterable[Dataset.Column]) -> Dataset.Column:
+                return arg_max(sorted(feature_columns, key=lambda feature_column: feature_column.name),
                                key=lambda column: information_gain(dataset, column))
 
             @classmethod
@@ -390,19 +397,20 @@ class DecisionForest(FrozenSet):
                         Dataset.Row.ColumnValue(dataset.result_column, most_frequent_result_column_value)):
                     return DecisionForest.Tree.Node(dataset.result_column, most_frequent_result_column_value)
 
-                most_discriminate_feature_column: Dataset.Column = cls._most_discriminatory_feature_column(dataset)
+                most_discriminatory_feature_column: Dataset.Column = \
+                    cls._most_discriminatory_feature_column(dataset, feature_columns)
 
-                connections: Set[DecisionForest.Tree.Connection] = set()
-                for feature_value in most_discriminate_feature_column.values:
-                    connections.add(DecisionForest.Tree.Connection(
+                connections: List[DecisionForest.Tree.Connection] = list()
+                for feature_value in most_discriminatory_feature_column:
+                    connections.append(DecisionForest.Tree.Connection(
                         feature_value, DecisionForest.Tree.Generator._from_discrete_dataset(
                             dataset,
-                            dataset.where(Dataset.Row.ColumnValue(most_discriminate_feature_column, feature_value)),
-                            feature_columns - {most_discriminate_feature_column},
+                            dataset.where(Dataset.Row.ColumnValue(most_discriminatory_feature_column, feature_value)),
+                            feature_columns - {most_discriminatory_feature_column},
                             depth=depth + 1,
                             max_depth=max_depth)))
 
-                return DecisionForest.Tree.Node(most_discriminate_feature_column, connections)
+                return DecisionForest.Tree.Node(most_discriminatory_feature_column, connections)
 
     def __new__(cls, trees: Iterable[DecisionForest.Tree]):
         return super(DecisionForest, cls).__new__(cls, trees)

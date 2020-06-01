@@ -11,4 +11,4 @@ class ModelFactory:
         if isinstance(picker, ModelPicker):
             return picker.value(args, kwargs)
 
-        return ModelFactory._picker_string_dictionary[picker](args, kwargs)
+        return ModelFactory._picker_string_dictionary[picker](*args, **kwargs)

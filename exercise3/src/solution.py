@@ -19,10 +19,13 @@ def solution() -> None:
         config.read_file(lines)
         config = dict(config.items(config_main_section_name))
 
-    model = ModelFactory.create(config['model'])
+    model = ModelFactory.create(config['model'], **config)
 
-    model.print_fitting_results(Dataset.from_csv_file(train_set_path, Dataset.Column.ValueFrequency.Discrete))
-    model.print_prediction_results(Dataset.from_csv_file(test_set_path, Dataset.Column.ValueFrequency.Discrete))
+    train_set = Dataset.from_csv_file(train_set_path, Dataset.Column.ValueFrequency.Discrete)
+    model.print_fitting_results(train_set)
+
+    test_set = Dataset.from_csv_file(test_set_path, Dataset.Column.ValueFrequency.Discrete)
+    model.print_prediction_results(test_set)
 
 
 if __name__ == '__main__':
