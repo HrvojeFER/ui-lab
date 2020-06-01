@@ -12,10 +12,10 @@ def relative_frequency(dataset: Dataset, column: Dataset.Column, value: Any):
 
 
     :param dataset: dataset to perform the calculation on
-    :param column: column on which the value will be tested
+    :param column: feature_column on which the value will be tested
     :param value: the value to test with
 
-    :return: frequency of the rows that have the specified value of the specified column
+    :return: frequency of the rows that have the specified value of the specified feature_column
     """
 
     return len(dataset.where(Dataset.Row.ColumnValue(column, value))) / len(dataset)
@@ -24,15 +24,15 @@ def relative_frequency(dataset: Dataset, column: Dataset.Column, value: Any):
 def _entropy(dataset: Dataset, column: Dataset.Column, value: Any):
     """
     >>> dataset = Dataset.from_csv_file(Dataset.test_file_path)
-    >>> _entropy(dataset, dataset.feature_columns_tuple[3], True)
+    >>> _entropy(dataset, dataset.feature_column_tuple[3], True)
     0.5
 
 
     :param dataset: dataset to perform the calculation on
-    :param column: column on which the value will be tested
+    :param column: feature_column on which the value will be tested
     :param value: the value to test with
 
-    :return: entropy of the rows that have the specified value of the specified column
+    :return: entropy of the rows that have the specified value of the specified feature_column
     """
 
     probability = relative_frequency(dataset, column, value)
@@ -42,15 +42,15 @@ def _entropy(dataset: Dataset, column: Dataset.Column, value: Any):
 def entropy(dataset: Dataset, column: Dataset.Column, *values: Any) -> float:
     """
     >>> dataset = Dataset.from_csv_file(Dataset.test_file_path, Dataset.Column.ValueFrequency.Discrete)
-    >>> entropy(dataset, dataset.feature_columns_tuple[3], *dataset.feature_columns_tuple[3].supported)
+    >>> entropy(dataset, dataset.feature_column_tuple[3], *dataset.feature_column_tuple[3].supported)
     1.0
 
 
     :param dataset: dataset to perform the calculation on
-    :param column: column on which the value will be tested
-    :param values: the values to test with
+    :param column: feature_column on which the value will be tested
+    :param values: the row to test with
 
-    :return: entropy of the rows that have the specified values of the specified column
+    :return: entropy of the rows that have the specified row of the specified feature_column
     """
 
     return sum(_entropy(dataset, column, value) for value in values)
@@ -59,14 +59,14 @@ def entropy(dataset: Dataset, column: Dataset.Column, *values: Any) -> float:
 def information_gain(dataset: Dataset, feature_column: Dataset.Column) -> float:
     """
     >>> dataset = Dataset.from_csv_file(Dataset.test_file_path, Dataset.Column.ValueFrequency.Discrete)
-    >>> information_gain(dataset, dataset.feature_columns_tuple[1])
+    >>> information_gain(dataset, dataset.feature_column_tuple[1])
     0.0
 
 
     :param dataset: dataset to perform the calculation on
-    :param feature_column: feature_column column for which the information gain will be calculated
+    :param feature_column: feature_column feature_column for which the information gain will be calculated
 
-    :return: information gain for the specified feature_column column
+    :return: information gain for the specified feature_column feature_column
     """
 
     result_column = dataset.result_column
@@ -79,7 +79,7 @@ def information_gain(dataset: Dataset, feature_column: Dataset.Column) -> float:
         for value in feature_column_.supported:
             reduced_dataset = dataset_.where(Dataset.Row.ColumnValue(feature_column, value))
             yield (entropy(reduced_dataset, result_column_, *result_column_.supported) *
-                   len(reduced_dataset) / len(dataset))
+                   len(reduced_dataset) / len(dataset)) if len(reduced_dataset) != 0 else 0
 
     feature_entropy = sum(__feature_entropy_generator(dataset, feature_column, result_column))
 

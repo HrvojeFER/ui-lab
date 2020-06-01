@@ -1,55 +1,39 @@
-import configparser
-import csv
-import os
-import sys
+def solution() -> None:
+    import configparser
+    import os
+    import sys
 
-from models import *
+    from dataset import Dataset
+    from modelfactory import ModelFactory
 
+    data_path = os.path.join('.')
+    train_set_path = sys.argv[1]
+    test_set_path = sys.argv[2]
+    config_path = sys.argv[3]
 
-data_path = os.path.join('..', 'data')
-train_set_path = sys.argv[1]
-test_set_path = sys.argv[2]
-config_path = sys.argv[3]
+    config = configparser.ConfigParser()
+    config_main_section_name = 'main'
+    with open(os.path.join(data_path, config_path)) as config_file:
+        lines = config_file.readlines()
+        lines.insert(0, f'[{config_main_section_name}]')
+        config.read_file(lines)
+        config = dict(config.items(config_main_section_name))
 
+    model = ModelFactory.create(config['model'])
 
-config = configparser.ConfigParser()
-config_main_section_name = 'main'
-with open(os.path.join(data_path, config_path)) as config_file:
-    lines = config_file.readlines()
-    lines.insert(0, f'[{config_main_section_name}]')
-    config.read_file(lines)
-    config = dict(config.items(config_main_section_name))
-
-print(config)
-
-
-if config['model'] == 'ID3':
-    model = ID3(int(config['max_depth']), int(config['num_trees']))
-else:
-    raise RuntimeError(f"No such model: {config['model']}.")
-
-print(model)
+    model.print_fitting_results(Dataset.from_csv_file(train_set_path, Dataset.Column.ValueFrequency.Discrete))
+    model.print_prediction_results(Dataset.from_csv_file(test_set_path, Dataset.Column.ValueFrequency.Discrete))
 
 
-train_set = []
-with open(os.path.join(data_path, train_set_path)) as dataset_file:
-    for row in csv.reader(dataset_file):
-        train_set.append(row)
+if __name__ == '__main__':
+    """
+    import sys
+    import threading
 
-test_set = []
-with open(os.path.join(data_path, test_set_path)) as dataset_file:
-    for row in csv.reader(dataset_file):
-        test_set.append(row)
-test_set = test_set[1:]
+    sys.setrecursionlimit(100000)
+    threading.stack_size(200000000)
+    thread = threading.Thread(target=solution())
+    thread.start()
+    """
 
-print(train_set)
-print(test_set)
-
-
-model.fit(train_set)
-print(model.tree_str())
-
-predictions = model.predict(test_set)
-print([prediction for prediction in predictions])
-# TODO: fix this
-print(sum(1 for index, prediction in enumerate(predictions) if test_set[index][-1] == prediction) / len(test_set))
+    solution()

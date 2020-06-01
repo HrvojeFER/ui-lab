@@ -1,129 +1,80 @@
-import math
+from __future__ import annotations
 
 from typing import *
+from abc import *
+from enum import *
+
+from dataset import Dataset
+from decisionforest import DecisionForest
 
 
-# TODO: write tests!!!
+class AbstractModel(ABC):
+    _name: str = "Abstract Model"
 
-ArgType = TypeVar('ArgType')
+    def __init__(self) -> NoReturn:
+        self._is_fit = False
 
+    @abstractmethod
+    def fit(self, dataset: Dataset) -> Any:
+        self._is_fit = True
 
-def _arg_max(predicate: Callable[[ArgType], Any], arguments: Iterable[ArgType]):
-    arguments_iterator = iter(arguments)
-    result: str = next(arguments_iterator)
-    predicate_result: Any = predicate(result)
+    @abstractmethod
+    def print_fitting_results(self, dataset: Dataset) -> NoReturn: ...
 
-    for test in arguments_iterator:
-        current_predicate_result = predicate(test)
-        if predicate_result is None or current_predicate_result > predicate_result:
-            result = test
-            predicate_result = current_predicate_result
+    class UnfitModelError(RuntimeError):
+        def __init__(self, name: str):
+            super().__init__(f"Model ({name}) is unfit.")
 
-    return result
+    @abstractmethod
+    def predict(self, dataset: Dataset) -> Any:
+        if not self._is_fit:
+            raise AbstractModel.UnfitModelError(self._name)
 
-
-def _relative_frequency(dataset: List[List[str]], class_: str):
-    return sum(1 for row in dataset if row[-1] == class_) / len(dataset)
-
-
-def __entropy(dataset: List[List[str]], class_: str):
-    probability = _relative_frequency(dataset, class_)
-    return probability * math.log2(probability) if probability != 0 else 0
+    @abstractmethod
+    def print_prediction_results(self, dataset: Dataset) -> NoReturn: ...
 
 
-def _entropy(dataset: List[List[str]], classes: Iterable[str]) -> float:
-    return -sum(__entropy(dataset, class_) for class_ in classes)
+class ModelPicker(Enum):
+    pass
 
 
-def _information_gain(
-        dataset: List[List[str]],
-        classes: Iterable[str],
-        feature_values: Iterable[str]) -> float:
-    return _entropy(dataset, classes) - sum(_entropy(list(row for row in dataset if feature_value in row), classes)
-                                            for feature_value in feature_values)
+class ID3(AbstractModel):
+    _name = "ID3"
 
+    def __init__(self, max_depth: int, num_trees: int) -> NoReturn:
+        super().__init__()
 
-class _Leaf:
-    def __init__(self, class_: str):
-        self._class: str = class_
-
-    @property
-    def class_(self) -> str:
-        return self._class
-
-    def __str__(self) -> str:
-        return self._class
-
-
-class _Node:
-    def __init__(self, feature: str, children: Iterable[Tuple[str, Union['_Node', _Leaf]]]):
-        self._feature: str = feature
-        self._children: Set[Tuple[str, Union[_Node, _Leaf]]] = set(children)
-
-    def iterate(self, feature_values: Iterable[str]) -> str:
-        feature_values = set(feature_values)
-        for child in self._children:
-            if child[0] in feature_values:
-                if isinstance(child[1], _Node):
-                    feature_values = list(feature_values)
-                    feature_values.remove(child[0])
-                    return child[1].iterate(feature_values)
-                else:
-                    return child[1].class_
-
-    def __str__(self) -> str:
-        return f'{self._feature}:\n\t' + '\n\t'.join(feature_value + ' -> ' + str(child)
-                                                     for feature_value, child in self._children)
-
-
-class ID3:
-    # noinspection PyTypeChecker
-    def __init__(self, max_depth: int, num_trees: int):
         self._max_depth: int = max_depth
         self._num_trees: int = num_trees
-        self._tree: Optional[_Node] = None
 
-    def fit(self, dataset: List[List[str]]) -> NoReturn:
-        features = dataset[0][:-1]
-        dataset = dataset[1:]
-        feature_values = dict((feature, set(row[index] for row in dataset)) for index, feature in enumerate(features))
-        classes = set(row[-1] for row in dataset)
+        self._tree: Optional[DecisionForest.Tree] = None
 
-        self._tree = self._gen_tree(dataset, dataset, features, feature_values, classes)
+    def fit(self, dataset: Dataset) -> DecisionForest.Tree:
+        super().fit(dataset)
 
-    def _gen_tree(self,
-                  initial_dataset: List[List[str]],
-                  dataset: List[List[str]],
-                  features: List[str],
-                  feature_values: Mapping[str, Set[str]],
-                  classes: Set[str]) -> Union[_Node, _Leaf]:
+        self._tree = DecisionForest.Tree.Generator.from_dataset(dataset, max_depth=self._max_depth)
+        return self._tree
 
-        if len(dataset) == 0:
-            leaf_class = _arg_max(lambda class_: sum(1 for row in initial_dataset if list(row)[-1] == class_), classes)
-            return _Leaf(leaf_class)
+    def print_fitting_results(self, dataset: Dataset) -> NoReturn:
+        print(self.fit(dataset))
 
-        leaf_class = _arg_max(lambda class_: sum(1 for row in dataset if row[-1] == class_), classes)
-        if len(features) == 0 or sum(1 for row in dataset if row[-1] != leaf_class) == 0:
-            return _Leaf(leaf_class)
+    def predict(self, dataset: Dataset) -> Generator[DecisionForest.Tree.Path, None, None]:
+        super().predict(dataset)
 
-        feature = _arg_max(lambda f: _information_gain(dataset, classes, feature_values[f]), features)
-        subtrees = set()
-        for feature_value in feature_values[feature]:
-            subtrees.add((feature_value, self._gen_tree(
-                initial_dataset,
-                [row for row in dataset if feature_value in row],
-                [feature for feature in features if feature != feature],
-                feature_values,
-                classes)))
+        for row in dataset:
+            try:
+                yield self._tree.iterate(row)
+            except DecisionForest.Tree.Node.ConnectionNotFound:
+                yield DecisionForest.Tree.Path()
 
-        return _Node(feature, subtrees)
-
-    def predict(self, dataset: Iterable[Iterable[str]]) -> Generator[str, None, None]:
-        for features in dataset:
-            yield self._tree.iterate(features)
+    def print_prediction_results(self, dataset: Dataset) -> NoReturn:
+        print([prediction.final_node.value for prediction in self.predict(dataset)])
 
     def __str__(self) -> str:
         return f'decision_tree_model: name=ID3, max_depth={self._max_depth}, num_trees={self._num_trees}'
 
     def tree_str(self) -> str:
         return str(self._tree)
+
+
+ModelPicker = Enum("ModelPicker", [("ID3", ID3)], type=ModelPicker)
