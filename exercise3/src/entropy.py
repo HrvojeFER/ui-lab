@@ -24,7 +24,7 @@ def relative_frequency(dataset: Dataset, column: Dataset.Column, value: Any):
 def _entropy(dataset: Dataset, column: Dataset.Column, value: Any):
     """
     >>> dataset = Dataset.from_csv_file(Dataset.test_file_path)
-    >>> _entropy(dataset, dataset.feature_column_tuple[3], True)
+    >>> _entropy(dataset, dataset.feature_columns[3], True)
     0.5
 
 

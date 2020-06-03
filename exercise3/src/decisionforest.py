@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import *
 
 from dataset import Dataset
-from extensions import arg_max, safe_literal_eval
+from extensions import max_argument, safe_literal_eval
 from entropy import information_gain
 
 
@@ -360,7 +360,7 @@ class DecisionForest(FrozenSet):
                 # I think this might work with other frequency types as well.
                 if dataset.column_value_frequency == Dataset.Column.ValueFrequency.Discrete:
                     return DecisionForest.Tree(cls._from_discrete_dataset(
-                        dataset, dataset, set(dataset.feature_column_set), max_depth=max_depth))
+                        dataset, dataset, set(dataset.get_feature_columns()), max_depth=max_depth))
 
                 raise DecisionForest.Tree.Generator.InadequateDatasetError(dataset)
 
@@ -374,8 +374,9 @@ class DecisionForest(FrozenSet):
             def _most_discriminatory_feature_column(cls,
                                                     dataset: Dataset,
                                                     feature_columns: Iterable[Dataset.Column]) -> Dataset.Column:
-                return arg_max(sorted(feature_columns, key=lambda feature_column: feature_column.name),
-                               key=lambda column: information_gain(dataset, column))
+                return max_argument(lambda column: information_gain(dataset, column),
+                                    sorted(feature_columns, key=lambda feature_column: feature_column.name),
+                                    type_limits={Dataset.Column})
 
             @classmethod
             def _from_discrete_dataset(cls,
@@ -384,7 +385,7 @@ class DecisionForest(FrozenSet):
                                        feature_columns: Set[Dataset.Column],
                                        depth: int = 0,
                                        max_depth: Optional[int] = None) -> DecisionForest.Tree.Node:
-                if dataset.is_empty():
+                if dataset.is_empty:
                     most_frequent_parent_result_column_value: Any = \
                         cls._most_frequent_result_column_value(parent_dataset)
 
